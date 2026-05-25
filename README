@@ -1,44 +1,124 @@
-# Drive API - Backend Service
+# 📁 DriveApp API - Sistema de Almacenamiento en la Nube y Autenticación Segura
 
-## Descripción General
-Este repositorio contiene el código fuente de la API Backend para el sistema **Drive**. El servicio está diseñado para gestionar usuarios, archivos y permisos, proporcionando una interfaz robusta y escalable construida sobre el ecosistema .NET y respaldada por una base de datos PostgreSQL.
-
-## Arquitectura
-El proyecto sigue un enfoque basado en controladores web (Web API) estructurado de la siguiente manera:
-* **Framework:** ASP.NET Core Web API (.NET 9).
-* **ORM:** Entity Framework Core (EF Core) con el proveedor de Npgsql.
-* **Base de Datos:** PostgreSQL.
-* **Documentación y Pruebas:** Scalar / OpenAPI.
-* **Patrones:** Uso de DTOs (Data Transfer Objects) para la validación de entrada (ej. `CreateUser`) y Modelos de Entidad mapeados directamente a la base de datos.
+Este repositorio contiene el backend (API) de **DriveApp**, una plataforma robusta inspirada en sistemas de almacenamiento en la nube. Está diseñada para gestionar la persistencia de archivos, estructuras de carpetas dinámicas y un flujo estricto de autenticación y autorización basado en roles.
 
 ---
 
-## Prerrequisitos
+## 🏗️ Arquitectura del Sistema
 
-Para levantar este proyecto en un entorno de desarrollo local, asegúrate de tener instaladas las siguientes herramientas:
+La API está construida bajo una arquitectura monolítica modular utilizando **.NET / C#** y un patrón de diseño por capas que separa de forma limpia las responsabilidades:
 
-1. **Entorno de Ejecución (.NET):**
-   * [Instalador para Windows x64 (.NET Runtime 9.0.14)](https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/runtime-9.0.14-windows-x64-installer?cid=getdotnetcore)
-   * [Scripts de instalación para Linux](https://learn.microsoft.com/en-us/dotnet/core/install/linux-scripted-manual#scripted-install)
-2. **Motor de Base de Datos:**
-   * [PostgreSQL (Instaladores de EnterpriseDB)](https://www.enterprisedb.com/downloads/postgres-postgresql-downloads)
-3. **Herramientas de Cliente de BD:** pgAdmin 4 o DBeaver (Recomendado para verificar estructuras).
+1. **Capa de Controladores (Presentation):** Expone los endpoints REST para consumo del cliente (React). Maneja el tráfico HTTP y las validaciones de entrada.
+2. **Capa de Servicios (Business Logic):** Contiene las reglas de negocio del sistema (criptografía, generación de tokens, control de límites físicos de archivos).
+3. **Capa de Datos (Data Access):** Realiza la comunicación directa y consultas a la base de datos a través de **ADO.NET / Npgsql** o un ORM integrado.
+
+### Base de Datos
+Se utiliza **PostgreSQL** como motor de base de datos relacional. Cuenta con un esquema optimizado para almacenar usuarios y una estructura jerárquica para la emulación del sistema de archivos mediante relaciones padre-hijo (`parentId`).
 
 ---
 
-## ⚙️ Configuración del Entorno y Dependencias
+## 🔒 Lógica de Autenticación y Flujo de Trabajo
 
-1. **Clonar el repositorio:**
-   ```bash
-   git clone <url-del-repositorio>
-   cd Drive.API
+El sistema implementa un flujo de seguridad estricto mediante **JWT (JSON Web Tokens)** y **Refresh Tokens**:
 
-## Restaurar paquetes NuGet:
-El proyecto utiliza dependencias específicas para la conexión con PostgreSQL. Ejecuta el siguiente comando en tu terminal para instalarlas:
+```text
+   [ Frontend (React) ]                      [ Backend (C# API) ]                  [ Base de Datos (PostgreSQL) ]
+   |                                         |                                           |
+   | ---- 1. Login (Email + Password) -----> |                                           |
+   |                                         | ---- 2. Valida MD5 y busca usuario -----> |
+   |                                         | <--- 3. Retorna Rol y Estado ------------ |
+   |                                         |                                           |
+   | <--- 4. Retorna Access/Refresh Token -- |                                           |
+   |                                         |                                           |
+   (Rutas Protegidas)                        |                                           |
+   Evalúa sessionStorage                     |                                           |
 
-    dotnet restore
+```
 
-## Para ejecutar con recarga en caliente (Hot Reload) durante el desarrollo
-    dotnet watch run
-## con scalar 
-    http://localhost:<PUERTO>/scalar/v1
+### Reglas Críticas del Flujo:
+
+* **Seguridad de Contraseñas:** Las contraseñas en tránsito/almacenamiento se procesan mediante hashing criptográfico **MD5 sin separadores** (en formato string plano hexadecimal en minúsculas) para match directo con el motor de base de datos.
+* **Mapeo de Datos Estricto:** La base de datos opera bajo la distinción estricta de variables en PostgreSQL (atención especial a columnas en minúsculas como `refreshtoken`).
+* **Estados de Usuario:** Un usuario debe contar con el atributo `status = 'Activo'` y un rol válido (`Administrador`, `Normal`, `User`) para que el middleware de React y la API otorguen acceso.
+
+---
+
+## 💾 Lógica del Explorador de Archivos (Storage)
+
+La API cuenta con endpoints dedicados para gestionar carpetas y archivos físicos bajo un esquema jerárquico:
+
+* **Límite Físico:** Límite estricto de subida de archivos configurado a **10 MB** máximos por petición.
+* **Control de Permisos de Modificación (`canModify`):**
+* Un usuario regular (`Normal` / `User`) **únicamente** puede renombrar (`PUT`) o eliminar (`DELETE`) los elementos donde su `userId` coincida perfectamente con el `idUser` del creador del archivo.
+* Un usuario con rol **`Administrador`** adquiere superpoderes globales en el sistema, permitiéndole editar o eliminar cualquier archivo o carpeta del repositorio sin importar el propietario original.
+
+
+
+---
+
+## ⚙️ Dependencias Necesarias
+
+Para correr y compilar este proyecto de manera local fuera de Docker, requieres los siguientes paquetes NuGet principales:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Npgsql" Version="X.X.X" />
+  <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="X.X.X" />
+  <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="X.X.X" />
+</ItemGroup>
+
+```
+
+---
+
+## 🐳 Despliegue con Docker
+
+El proyecto está completamente contenedorizado para garantizar que se ejecute idénticamente en cualquier entorno de desarrollo o producción.
+
+### 1. Archivo Dockerfile recomendado
+
+Asegúrate de tener un archivo `Dockerfile` en la raíz del proyecto de la API con la siguiente estructura multi-stage:
+
+```dockerfile
+# Etapa de compilación
+FROM [mcr.microsoft.com/dotnet/sdk:8.0](https://mcr.microsoft.com/dotnet/sdk:8.0) AS build
+WORKDIR /app
+
+COPY *.csproj ./
+RUN dotnet restore
+
+COPY . ./
+RUN dotnet publish -c Release -o out
+
+# Etapa de ejecución
+FROM [mcr.microsoft.com/dotnet/aspnet:8.0](https://mcr.microsoft.com/dotnet/aspnet:8.0)
+WORKDIR /app
+COPY --from=build /app/out .
+
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+
+ENTRYPOINT ["dotnet", "TuProyectoAPI.dll"]
+
+```
+
+### 2. Comandos para Construir y Correr el Contenedor
+
+Ejecuta los siguientes comandos en tu terminal de manera secuencial:
+
+```bash
+# A) Construir la imagen de Docker
+docker build -t driveapp-api .
+
+# B) Correr el contenedor mapeando el puerto e inyectando las variables de entorno
+docker run -d \
+  -p 5173:8080 \
+  --name driveapp-backend \
+  -e ConnectionStrings__DefaultConnection="Host=TU_IP_POSTGRES;Database=TU_BASE_DATOS;Username=TU_USUARIO;Password=TU_CONTRASEÑA" \
+  driveapp-api
+
+```
+
+### ⚠️ Nota Importante de Red:
+
+Si tu base de datos PostgreSQL está corriendo de forma nativa en tu máquina local (`localhost`), recuerda que desde adentro de un contenedor Docker `localhost` apunta al contenedor mismo. Cambia el Host de tu cadena de conexión a `host.docker.internal` o a la IP privada de tu máquina para que el contenedor pueda conectarse correctamente.
