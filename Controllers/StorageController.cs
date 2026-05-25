@@ -1,141 +1,179 @@
 using Microsoft.AspNetCore.Mvc;
 using Drive.Services;
+using Drive.Models;
+using System;
+using System.Threading.Tasks;
+using System.Text.Json.Serialization;
 
-namespace Drive.Controllers
-{
-[ApiController]
+namespace Drive.Controllers;
+
 [Route("api/[controller]")]
+[ApiController]
 public class StorageController : ControllerBase
 {
     private readonly IStorageService _storageService;
 
-    // Inyectamos el servicio por el constructor
     public StorageController(IStorageService storageService)
     {
         _storageService = storageService;
     }
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-[HttpPost("folder")]
-public async Task<IActionResult> CreateFolder([FromBody] CreateFolderDto request)
-{
-    try
-    {
-        var folder = await _storageService.CreateFolderAsync(request.Name, request.ParentId, request.UserId);
-        return Ok(folder);
-    }
-    catch (Exception ex)
-    {
-        // Si rompe alguna regla (ej. carpeta duplicada), devolvemos el error al Front
-        return BadRequest(new { message = ex.Message }); 
-    }
-}
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        // Usamos [FromForm] porque los archivos viajan como FormData, no como JSON normal
-[HttpPost("file")]
-public async Task<IActionResult> UploadFile([FromForm] IFormFile file, [FromForm] int parentId, [FromForm] int userId)
-{
-    try
-    {
-        if (file == null || file.Length == 0)
-            return BadRequest(new { message = "No se envió ningún archivo válido." });
 
-        var uploadedFile = await _storageService.UploadFileAsync(file, parentId, userId);
-        return Ok(uploadedFile);
-    }
-    catch (Exception ex)
+    // 1. GET: api/Storage/directory (LISTAR)
+    [HttpGet("directory")]
+    public async Task<IActionResult> GetDirectory(
+        [FromQuery] int? folderId,
+        [FromQuery] string? searchTerm,
+        [FromQuery] string? type,
+        [FromQuery] string? ownerSearch,
+        [FromQuery] DateTime? startDate,
+        [FromQuery] DateTime? endDate,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10)
     {
-        // Si rompe reglas (ej. pesa más de 10MB o no tiene parentId), atrapamos el error
-        return BadRequest(new { message = ex.Message });
-    }
-}
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-[HttpGet("directory")]
-public async Task<IActionResult> GetDirectory(
-    [FromQuery] int? folderId, 
-    [FromQuery] string? search, 
-    [FromQuery] string? type, 
-    [FromQuery] string? owner, 
-    [FromQuery] DateTime? startDate, 
-    [FromQuery] DateTime? endDate, 
-    [FromQuery] int page = 1, 
-    [FromQuery] int pageSize = 10)
-{
-    try
-    {
-        var (items, totalCount) = await _storageService.GetDirectoryContentAsync(
-            folderId, search, type, owner, startDate, endDate, page, pageSize
-        );
+        try
+        {
+            var (items, totalCount) = await _storageService.GetDirectoryContentAsync(
+                folderId, searchTerm, type, ownerSearch, startDate, endDate, page, pageSize);
 
-        return Ok(new { items, total = totalCount });
-    }
-    catch (Exception ex)
-    {
-        return BadRequest(new { message = ex.Message });
-    }
-}
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-[HttpGet("download/{id}")]
-public async Task<IActionResult> DownloadFile(int id)
-{
-    try
-    {
-        var (fileBytes, contentType, fileName) = await _storageService.DownloadFileAsync(id);
-        // Retorna el archivo como un adjunto descargable
-        return File(fileBytes, contentType, fileName); 
-    }
-    catch (Exception ex)
-    {
-        return NotFound(new { message = ex.Message });
-    }
-}
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-[HttpPut("{id}/rename")]
-public async Task<IActionResult> Rename(int id, [FromBody] RenameDto request)
-{
-    try
-    {
-        if (string.IsNullOrWhiteSpace(request.NewName))
-            return BadRequest(new { message = "El nuevo nombre no puede estar vacío." });
-
-        var updatedItem = await _storageService.RenameItemAsync(id, request.NewName, request.UserId);
-        return Ok(updatedItem);
-    }
-    catch (Exception ex)
-    {
-        return BadRequest(new { message = ex.Message });
-    }
-}
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-[HttpDelete("{id}")]
-public async Task<IActionResult> DeleteItem(int id, [FromQuery] int userId)
-{
-    if (userId <= 0)
-    {
-        return Unauthorized(new { message = "Seguridad: No se detectó un ID de usuario activo." });
+            return Ok(new { items, totalCount });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
     }
 
-    try
+    // 2. POST: api/Storage/folder (CREAR CARPETA)
+    // 2. POST: api/Storage/folder (CREAR CARPETA)
+    [HttpPost("folder")]
+    public async Task<IActionResult> CreateFolder([FromBody] HttpCreateFolderRequest model)
     {
-        await _storageService.DeleteItemAsync(id, userId);
-        return Ok(new { message = "Eliminado con éxito." });
+        try
+        {
+            // CORRECCIÓN: Se cambió model.name por model.Name
+            if (model == null || string.IsNullOrWhiteSpace(model.Name))
+            {
+                return BadRequest(new { message = "El nombre de la carpeta es requerido." });
+            }
+            // CORRECCIÓN: Se cambió model.userId por model.UserId
+            if (!model.UserId.HasValue || model.UserId <= 0)
+            {
+                return BadRequest(new { message = "El campo 'userId' es requerido y debe ser válido." });
+            }
+
+            // CORRECCIÓN: Se cambiaron todas a Mayúsculas: Name, ParentId, UserId
+            var newFolder = await _storageService.CreateFolderAsync(model.Name.Trim(), model.ParentId, model.UserId.Value);
+            return Ok(newFolder);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
     }
-    catch (Exception ex)
+
+    // 3. POST: api/Storage/file (SUBIR ARCHIVO)
+    [HttpPost("file")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadFile([FromForm] IFormFile file, [FromForm] int? parentId, [FromForm] int userId)
     {
-        return BadRequest(new { message = ex.Message });
+        try
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "No se ha seleccionado ningún archivo válido." });
+            }
+            if (userId <= 0)
+            {
+                return BadRequest(new { message = "El campo 'userId' es requerido para subir archivos." });
+            }
+
+            int folderId = parentId.GetValueOrDefault(0); 
+
+            var uploadedFile = await _storageService.UploadFileAsync(file, folderId, userId);
+            return Ok(uploadedFile);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
+    }
+
+    // 4. PUT: api/Storage/{id}/rename (RENOMBRAR) - CORREGIDO PARA ENTRADA EN MINÚSCULAS
+    // 4. PUT: api/Storage/{id}/rename (RENOMBRAR)
+    [HttpPut("{id}/rename")]
+    public async Task<IActionResult> RenameFile(int id, [FromBody] HttpRenameRequest model)
+    {
+        try
+        {
+            if (id <= 0)
+            {
+                return BadRequest(new { message = "El id del archivo en la URL es inválido." });
+            }
+            // CORRECCIÓN: Usamos las propiedades con mayúscula inicial
+            if (model == null || string.IsNullOrWhiteSpace(model.Name)) 
+            {
+                return BadRequest(new { message = "El campo 'name' no puede estar vacío." });
+            }
+            if (model.UserId <= 0) 
+            {
+                return BadRequest(new { message = "El campo 'userId' es requerido y debe ser válido." });
+            }
+
+            var updatedItem = await _storageService.RenameItemAsync(id, model.Name.Trim(), model.UserId);
+            return Ok(updatedItem);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
+    }
+
+    // 5. DELETE: api/Storage/{id} (ELIMINAR)
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteFile(int id, [FromQuery] int userId)
+    {
+        try
+        {
+            await _storageService.DeleteItemAsync(id, userId);
+            return Ok(new { message = "Elemento eliminado con éxito." });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
+    }
+
+    // 6. GET: api/Storage/download/{id} (DESCARGAR)
+    [HttpGet("download/{id}")]
+    public async Task<IActionResult> DownloadFile(int id)
+    {
+        try
+        {
+            var (fileBytes, contentType, fileName) = await _storageService.DownloadFileAsync(id);
+            return File(fileBytes, contentType, fileName);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
     }
 }
-}
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // DTO sencillo para la petición de renombrado
-public class RenameDto
+
+// =========================================================================
+// DTOs CORREGIDOS CON MINÚSCULAS PARA ASEGURAR EL BINDING DIRECTO DESDE REACT
+// =========================================================================
+
+
+public class HttpRenameRequest
 {
-    public string NewName { get; set; } = string.Empty;
-    public int UserId { get; set; }
-}
-public class CreateFolderDto
-{
+    
     public string Name { get; set; } = string.Empty;
-    public int? ParentId { get; set; }
     public int UserId { get; set; }
 }
+
+public class HttpCreateFolderRequest
+{
+    public string? Name { get; set; }
+    public int? ParentId { get; set; }
+    public int? UserId { get; set; }
 }

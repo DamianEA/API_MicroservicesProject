@@ -1,21 +1,54 @@
 using Drive.Models;
+using Drive.Services; // Asegura este uso
 using Microsoft.EntityFrameworkCore;
-//using Pomelo.EntityFrameworkCore.MySql;
 using Scalar.AspNetCore;
 using Npgsql;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Definir la cadena de conexión (mejor si está aquí o en appsettings.json)
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = false,        // Como creaste el token a mano sin Issuer, lo dejamos en false
+        ValidateAudience = false,      // Como no le pusiste Audience, lo dejamos en false
+        ValidateLifetime = true,        // Para que valide la fecha "exp" de expiración
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("ESTA_ES_UNA_LLAVE_SUPER_SECRETA_Y_LARGA_12345")),
+        ClockSkew = TimeSpan.Zero      // Para que expire en el segundo exacto que le toca
+    };
+});
+
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowReact", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
 var connString = "Host=localhost;Username=postgres;Password=PUTA0011;Database=users";
 
-// 2. Configurar el DbContext correctamente
 builder.Services.AddDbContextPool<DefaultDbContext>(opt =>
-    opt.UseNpgsql(connString) // Usamos la variable directa para evitar el error de 'null'
+    opt.UseNpgsql(connString)
 );
 
-// 3. Servicios estándar
 builder.Services.AddOpenApi();
+
+builder.Services.AddScoped<IStorageService, StorageService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -25,12 +58,17 @@ builder.Services.AddControllers()
 
 var app = builder.Build();
 
-// 4. Pipeline de HTTP
+app.UseCors("AllowReact");
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.MapScalarApiReference();
 }
+
+app.UseAuthentication();
+
+app.UseAuthorization(); 
 
 app.MapControllers();
 

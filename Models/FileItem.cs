@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -21,10 +22,6 @@ namespace Drive.Models
         [Column("id_user")]
         public int IdUser { get; set; }
 
-        // Relación con tu tabla users
-        [ForeignKey("IdUser")]
-        public User? Owner { get; set; }
-
         [Required]
         [Column("type")]
         public string Type { get; set; } = string.Empty; 
@@ -37,5 +34,9 @@ namespace Drive.Models
 
         [Column("created_at")]
         public DateTime? CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // Hidratado manualmente desde StorageService, se ignora en la BD
+        [NotMapped]
+        public User? Owner { get; set; }
     }
 }
