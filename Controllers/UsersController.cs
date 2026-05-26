@@ -84,6 +84,7 @@ public class UserController : ControllerBase
     }
 
     // POST: api/User/register
+    [AllowAnonymous]
     [HttpPost("register")]
     public async Task<IActionResult> CreateUser([FromBody] CreateUser userData)
     {

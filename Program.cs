@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddAuthentication(options =>
@@ -28,23 +27,23 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-
+// --- CONFIGURACIÓN DE CORS DEFINITIVA ---
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReact", policy =>
+    options.AddPolicy("AllowProductionAndLocal", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+    policy.SetIsOriginAllowed(origin => true) 
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials(); // Mantiene el soporte para tus Refresh Tokens / Cookies
     });
 });
 
-var connString = "Host=localhost;Username=postgres;Password=PUTA0011;Database=users";
+// Forzamos la conexión directa a tu Postgres nativo usando la IP puente de Docker
+var connectionString = "Host=host.docker.internal;Port=5432;Database=users;Username=postgres;Password=PUTA0011";
 
-builder.Services.AddDbContextPool<DefaultDbContext>(opt =>
-    opt.UseNpgsql(connString)
-);
+builder.Services.AddDbContext<DefaultDbContext>(options =>
+    options.UseNpgsql(connectionString));
 
 builder.Services.AddOpenApi();
 
@@ -58,7 +57,8 @@ builder.Services.AddControllers()
 
 var app = builder.Build();
 
-app.UseCors("AllowReact");
+// Usamos la nueva política unificada (SIEMPRE antes de Authentication/Authorization)
+app.UseCors("AllowProductionAndLocal");
 
 if (app.Environment.IsDevelopment())
 {

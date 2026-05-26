@@ -144,19 +144,61 @@ public class StorageController : ControllerBase
     }
 
     // 6. GET: api/Storage/download/{id} (DESCARGAR)
-    [HttpGet("download/{id}")]
-    public async Task<IActionResult> DownloadFile(int id)
+[HttpGet("download/{id}")]
+public async Task<IActionResult> DownloadFile(int id)
+{
+    try
     {
-        try
+        // 1. Extraemos la base de datos metiéndonos en las entrañas de tu _storageService
+        var fields = _storageService.GetType().GetFields(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var dbContextField = fields.FirstOrDefault(f => f.FieldType.Name.Contains("Context") || f.FieldType.Name.Contains("Db"));
+        
+        if (dbContextField == null)
         {
-            var (fileBytes, contentType, fileName) = await _storageService.DownloadFileAsync(id);
-            return File(fileBytes, contentType, fileName);
+            return StatusCode(500, new { message = "No se pudo extraer el contexto de base de datos de manera dinámica." });
         }
-        catch (Exception ex)
+
+        dynamic? context = dbContextField.GetValue(_storageService);
+        if (context == null)
         {
-            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+            return StatusCode(500, new { message = "La conexión a la base de datos está vacía." });
         }
+
+        // 2. Buscamos el archivo en tu tabla de archivos
+        var fileRecord = await context.Files.FindAsync(id);
+        
+        if (fileRecord == null)
+        {
+            return NotFound(new { message = "El archivo no existe en la base de datos." });
+        }
+
+        // 3. Verificar si el archivo físico realmente existe en el contenedor Docker
+        if (!System.IO.File.Exists(fileRecord.Path))
+        {
+            Console.WriteLine($"[ERROR] Archivo no encontrado en la ruta de Docker: {fileRecord.Path}");
+            return NotFound(new { message = "El archivo físico no se encuentra en el servidor." });
+        }
+
+        // 4. Leer el archivo de forma asíncrona (Vital para que Vercel/Ngrok no tiren error 500)
+        var memory = new MemoryStream();
+        using (var stream = new FileStream(fileRecord.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true))
+        {
+            await stream.CopyToAsync(memory);
+        }
+        memory.Position = 0;
+
+        return File(memory, "application/octet-stream", fileRecord.Name);
     }
+    catch (Exception ex)
+    {
+        Console.WriteLine("=========================================================");
+        Console.WriteLine($"🚨 EXCEPCIÓN EN LA DESCARGA (ID: {id}) 🚨");
+        Console.WriteLine(ex.ToString());
+        Console.WriteLine("=========================================================");
+        
+        return StatusCode(500, new { message = "Error interno al descargar", error = ex.Message });
+    }
+}
 }
 
 // =========================================================================

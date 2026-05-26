@@ -1,42 +1,12 @@
-version: '3.8'
-
 services:
-  #Base de Datos
-  postgres_db:
-    image: postgres:16-alpine
-    container_name: postgres_container
-    environment:
-      - POSTGRES_USER=postgres 
-      - POSTGRES_PASSWORD=PUTA0011
-      - POSTGRES_DB=users
-    ports:
-      - "8080:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  # API en C# (.NET 10)
   api:
     build: .
     container_name: api_container
     ports:
-      - "5217:8080" # Mapea el puerto 5000 de tu PC al 8080 del contenedor
+      - "5217:8080" # Tu React busca el 5217 en tu PC
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Host=postgres_db;Port=5432;Database=users;Username=postgres;Password=PUTA0011
-      #Host=localhost;Username=postgres;Password=PUTA0011;Database=users;S
-    depends_on:
-      - postgres_db
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: ngrok_container
-    environment:
-      - NGROK_AUTHTOKEN=3DrqBQvLb7FGoPZ5Aen35jgp9kv_2ofK724WVam78HCifKnhu
-    # Aquí le decimos que exponga tu dominio estático y apunte al contenedor de la "api" en el puerto 8080
-    command: "http --domain=respect-book-closable.ngrok-free.dev api:8080"
-    ports:
-      - "4040:4040" # Puerto para ver el panel de control de Ngrok localmente
-    depends_on:
-      - api
-
-volumes:
-  postgres_data:  
+      - ASPNETCORE_URLS=http://+:8080
+      # Cambiamos el Host para que apunte a tu Windows Nativo:
+      - ConnectionStrings__DefaultConnection=Host=host.docker.internal;Port=5432;Database=users;Username=postgres;Password=PUTA0011
